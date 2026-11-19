@@ -1,0 +1,57 @@
+name: Análise estática LiquidJava
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  liquidjava:
+    name: Verificação LiquidJava
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter o código do PR
+        uses: actions/checkout@v7
+
+      - name: Instalar o Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Obter o LiquidJava
+        run: |
+          git clone --depth 1 \
+            https://github.com/liquid-java/liquidjava.git \
+            "$RUNNER_TEMP/liquidjava"
+
+      - name: Compilar o LiquidJava
+        working-directory: ${{ runner.temp }}/liquidjava
+        run: mvn -B --no-transfer-progress -DskipTests install
+
+      - name: Executar a verificação LiquidJava
+        working-directory: ${{ runner.temp }}/liquidjava
+        shell: bash
+        env:
+          SOURCES: ${{ github.workspace }}/src/main/java
+        run: |
+          set -o pipefail
+
+          test -d "$SOURCES"
+
+          mvn -B --no-transfer-progress exec:java \
+            -pl liquidjava-verifier \
+            -Dexec.mainClass=liquidjava.api.CommandLineLauncher \
+            "-Dexec.args=$SOURCES" \
+            2>&1 | tee "$RUNNER_TEMP/liquidjava.log"
+
+          # Exige a mensagem de sucesso documentada.
+          if ! grep -Fq "Correct! Passed Verification" \
+            "$RUNNER_TEMP/liquidjava.log"; then
+            echo "::error::A verificação LiquidJava falhou"
+            exit 1
+          fi
